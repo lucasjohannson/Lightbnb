@@ -94,7 +94,8 @@ const getAllReservations = function(guest_id, limit = 10) {
         SELECT * 
         FROM reservations
         JOIN properties on property_id = properties.id
-        WHERE $1 = guest_id
+        JOIN property_reviews ON properties.id = property_reviews.property_id
+        WHERE $1 = reservations.guest_id
         LIMIT $2;
         `, [guest_id, limit])
         .then((result) => {
@@ -116,16 +117,114 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 
-const getAllProperties = (options, limit = 10) => {
-  return pool
-    .query(`SELECT * FROM properties LIMIT $1`, [limit])
-    .then((result) => {
-      return (result.rows);
-    })
-    .catch((err) => {
-      console.log(err.message);
-    });
-};
+//  {
+//   city,
+//   owner_id,
+//   minimum_price_per_night,
+//   maximum_price_per_night,
+//   minimum_rating;
+// }
+
+
+  // const getAllProperties = function (options, limit = 10) {
+  //   // 1
+  //   const queryParams = [];
+  //   // 2
+  //   let queryString = `
+  //   SELECT properties.*, avg(property_reviews.rating) as average_rating
+  //   FROM properties
+  //   JOIN property_reviews ON properties.id = property_id
+  //   `;
+  
+  //   // 3
+  //   //ad arbitrary where statement just to have the where clause 
+  //   if (options.length > 0){
+  //     queryString += `WHERE cost_per_night > 0`;
+  //   }
+  //   if (options.city) {
+  //     queryParams.push(`%${options.city}%`);
+  //     queryString += `AND city LIKE $${queryParams.length} `;
+  //   }
+  //   if (options.minimum_price_per_night) {
+  //     queryParams.push(`%${options.minimum_price_per_night}% `);
+  //     queryString += `AND cost_per_night > $${queryParams.length}`;
+  //   }
+  //   if (options.maximum_price_per_night) {
+  //     queryParams.push(`%${options.maximum_price_per_night}% `);
+  //     queryString += `AND cost_per_night $${queryParams.length}`;
+  //   }
+
+  //   if (options.city) {
+  //     queryParams.push(`%${options.minimum_rating}%`);
+  //     queryString += `AND avg(property_reviews.rating) > $${queryParams.length} `;
+  //   }
+  
+  //   // 4
+  //   queryParams.push(limit);
+  //   queryString += `
+  //   GROUP BY properties.id
+  //   ORDER BY cost_per_night
+  //   LIMIT $${queryParams.length};
+  //   `;
+  
+  //   // 5
+  //   console.log(queryString, queryParams);
+  
+  //   // 6
+  //   return pool.query(queryString, queryParams).then((res) => res.rows);
+  // };
+
+  const getAllProperties = function (options, limit = 10) {
+    // 1
+    const queryParams = [];
+    // 2
+    let queryString = `
+    SELECT properties.*, avg(property_reviews.rating) as average_rating
+    FROM properties
+    JOIN property_reviews ON properties.id = property_id
+    `;
+  
+    // 3
+
+    if (options.length > 0){
+          queryString += `WHERE cost_per_night > 0`;
+    }
+
+    if (options.city) {
+      queryParams.push(`%${options.city}%`);
+      queryString += `AND city LIKE $${queryParams.length} `;
+    }
+
+    if (options.minimum_price_per_night) {
+      queryParams.push(Number(options.minimum_price_per_night * 100));
+      queryString += `AND cost_per_night > $${queryParams.length}`;
+    }
+    if (options.maximum_price_per_night) {
+      queryParams.push(Number(options.maximum_price_per_night * 100));
+      queryString += `AND cost_per_night < $${queryParams.length}`;
+    }
+
+    if (options.minimum_rating) {
+      queryParams.push(Number(options.minimum_rating));
+      //queryString += `WHERE $${queryParams.length}  > average_rating`;
+      queryString += `WHERE $${queryParams.length}  < (select avg(property_reviews.rating) from property_reviews)`;
+    }
+  
+    // 4
+    queryParams.push(limit);
+    queryString += `
+    GROUP BY properties.id
+    ORDER BY cost_per_night
+    LIMIT $${queryParams.length};
+    `;
+  
+    // 5
+    console.log(queryString, queryParams);
+  
+    // 6
+    return pool.query(queryString, queryParams).then((res) => res.rows);
+  };
+
 exports.getAllProperties = getAllProperties;
 
 
@@ -135,9 +234,33 @@ exports.getAllProperties = getAllProperties;
  * @return {Promise<{}>} A promise to the property.
  */
 const addProperty = function(property) {
-  const propertyId = Object.keys(properties).length + 1;
-  property.id = propertyId;
-  properties[propertyId] = property;
-  return Promise.resolve(property);
+  const owner_id = property.owner_id;
+  const title = property.title;
+  const description = property.description;
+  const tn = property.thumbnail_photo_url;
+  const cp = property.cover_photo_url;
+  const cost = property.cost_per_night;
+  const street = property.street;
+  const city = property.city;
+  const province = property.province;
+  const port = property.post_code;
+  const country = property.country;
+  const parking_spaces = Number(property.parking_spaces);
+  const bathroom = Number(property.number_of_bathrooms);
+  const bedroom = Number(property.number_of_bedrooms);
+
+  return pool
+        .query(`
+        INSERT INTO properties (
+          title, description, cover_photo_url, thumbnail_photo_url, cost_per_night, parking_spaces, number_of_bathrooms, number_of_bedrooms, province, city, country, street, post_code) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          RETURNING *;
+        `, [title, description, tn, cp, cost, street,city,province,port,country,parking_spaces,bathroom,bedroom])
+        .then((result) => {
+          return result.rows[0];
+        })
+        .catch((err) => {
+          console.log(err.message);
+        });
 }
 exports.addProperty = addProperty;
